@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>G360 AI Mail</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+body{font-family:system-ui;background:linear-gradient(135deg,#0f172a,#1e293b);min-height:100vh}
+.glass{background:rgba(30,41,59,0.8);border:1px solid rgba(71,85,105,0.3)}
+.btn{background:linear-gradient(135deg,#0d9488,#0891b2)}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+var user=null,page='login',templates=[];
+function token(){return localStorage.getItem('token')}
+function api(u,o){o=o||{};o.headers={'Content-Type':'application/json'};if(token())o.headers.Authorization='Bearer '+token();return fetch(u,o).then(function(r){if(r.status===401){localStorage.clear();page='login';render()}return r.json().then(function(d){if(!r.ok)throw new Error(d.error);return d})})}
+function toast(m,e){var t=document.createElement('div');t.className='fixed top-4 right-4 px-4 py-2 rounded text-white z-50 '+(e?'bg-red-500':'bg-green-500');t.textContent=m;document.body.appendChild(t);setTimeout(function(){t.remove()},3000)}
+function nav(p){page=p;render()}
+
+function loginHTML(){
+return '<div class="min-h-screen flex items-center justify-center p-4"><div class="w-full max-w-md"><div class="text-center mb-6"><h1 class="text-3xl font-bold text-teal-400">G360 AI Mail</h1></div><div class="glass rounded-xl p-6"><form id="loginForm" class="space-y-4"><div><label class="block text-sm text-slate-300 mb-1">Kullanici Adi</label><input type="text" id="username" class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white" required></div><div><label class="block text-sm text-slate-300 mb-1">Sifre</label><input type="password" id="password" class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white" required></div><button type="submit" class="w-full btn text-white py-2 rounded font-medium">Giris</button></form></div></div></div>';
+}
+
+function dashHTML(){
+return '<div class="p-6 space-y-6"><div class="flex justify-between items-center"><h1 class="text-2xl font-bold text-white">Merhaba, '+(user?user.full_name:'')+'</h1><button onclick="nav(\'send\')" class="btn text-white px-4 py-2 rounded">Yeni Mail</button></div><div id="stats" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div><div class="glass rounded-xl p-4"><h2 class="text-lg font-semibold text-white mb-3">Son Mailler</h2><div id="recent"></div></div></div>';
+}
+
+function sendHTML(){
+return '<div class="p-6 max-w-4xl mx-auto"><h1 class="text-2xl font-bold text-white mb-4">Mail Gonder</h1><div class="grid md:grid-cols-2 gap-6"><div class="glass rounded-xl p-4"><form id="sendForm" class="space-y-4"><div><label class="block text-sm text-slate-300 mb-1">Taslak</label><select id="tplSelect" class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white"></select></div><div class="grid grid-cols-2 gap-3"><div><label class="block text-sm text-slate-300 mb-1">Alici Email *</label><input type="email" id="toEmail" class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white" required></div><div><label class="block text-sm text-slate-300 mb-1">Alici Adi</label><input type="text" id="toName" class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white"></div></div><div id="vars"></div><button type="submit" class="w-full btn text-white py-2 rounded font-medium">Gonder</button></form></div><div class="glass rounded-xl p-4"><h3 class="text-white font-medium mb-2">Onizleme</h3><div id="preview" class="bg-white rounded p-3 text-sm max-h-80 overflow-auto"></div></div></div></div>';
+}
+
+function emailsHTML(){
+return '<div class="p-6"><h1 class="text-2xl font-bold text-white mb-4">'+(user&&user.role==='admin'?'Tum Mailler':'Maillerim')+'</h1><div class="glass rounded-xl overflow-hidden"><table class="w-full"><thead class="bg-slate-800"><tr><th class="text-left p-3 text-slate-400 text-sm">Alici</th>'+(user&&user.role==='admin'?'<th class="text-left p-3 text-slate-400 text-sm">Gonderen</th>':'')+'<th class="text-left p-3 text-slate-400 text-sm">Konu</th><th class="text-left p-3 text-slate-400 text-sm">Durum</th><th class="text-left p-3 text-slate-400 text-sm">Tarih</th></tr></thead><tbody id="emailList"></tbody></table></div></div>';
+}
+
+function settingsHTML(){
+return '<div class="p-6 max-w-md mx-auto"><h1 class="text-2xl font-bold text-white mb-4">Sifre Degistir</h1><div class="glass rounded-xl p-4"><form id="passForm" class="space-y-4"><div><label class="block text-sm text-slate-300 mb-1">Mevcut Sifre</label><input type="password" id="curPass" class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white" required></div><div><label class="block text-sm text-slate-300 mb-1">Yeni Sifre</label><input type="password" id="newPass" class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white" required></div><button type="submit" class="btn text-white px-4 py-2 rounded">Degistir</button></form></div></div>';
+}
+
+function usersHTML(){
+return '<div class="p-6"><div class="flex justify-between items-center mb-4"><h1 class="text-2xl font-bold text-white">Kullanicilar</h1><button onclick="showUserModal()" class="btn text-white px-4 py-2 rounded">+ Ekle</button></div><div class="glass rounded-xl overflow-hidden"><table class="w-full"><thead class="bg-slate-800"><tr><th class="text-left p-3 text-slate-400 text-sm">Ad</th><th class="text-left p-3 text-slate-400 text-sm">Kullanici Adi</th><th class="text-left p-3 text-slate-400 text-sm">Rol</th><th class="text-right p-3 text-slate-400 text-sm">Islem</th></tr></thead><tbody id="userList"></tbody></table></div></div><div id="userModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-50"><div class="glass rounded-xl p-4 w-80"><h3 class="text-white font-semibold mb-3">Yeni Kullanici</h3><form id="userForm" class="space-y-3"><input type="text" id="nuName" placeholder="Kullanici Adi" class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white text-sm" required><input type="text" id="nuFull" placeholder="Ad Soyad" class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white text-sm" required><input type="password" id="nuPass" placeholder="Sifre" class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white text-sm" required><div class="flex gap-2"><button type="button" onclick="hideUserModal()" class="flex-1 bg-slate-700 text-white py-2 rounded text-sm">Iptal</button><button type="submit" class="flex-1 btn text-white py-2 rounded text-sm">Kaydet</button></div></form></div></div>';
+}
+
+function tplsHTML(){
+return '<div class="p-6"><div class="flex justify-between items-center mb-4"><h1 class="text-2xl font-bold text-white">Taslaklar</h1><button onclick="showTplModal()" class="btn text-white px-4 py-2 rounded">+ Ekle</button></div><div id="tplGrid" class="grid md:grid-cols-2 lg:grid-cols-3 gap-4"></div></div><div id="tplModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden overflow-auto py-4 z-50"><div class="glass rounded-xl p-4 w-full max-w-lg mx-4"><h3 class="text-white font-semibold mb-3">Yeni Taslak</h3><form id="tplForm" class="space-y-3"><input type="text" id="tName" placeholder="Taslak Adi" class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white text-sm" required><input type="text" id="tSubj" placeholder="Konu (ornek: Teklif - {firma})" class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white text-sm" required><input type="text" id="tVars" placeholder="Degiskenler (virgul ile: ad, fiyat)" class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white text-sm"><textarea id="tBody" rows="6" placeholder="HTML icerik" class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white text-sm" required></textarea><div class="flex gap-2"><button type="button" onclick="hideTplModal()" class="flex-1 bg-slate-700 text-white py-2 rounded text-sm">Iptal</button><button type="submit" class="flex-1 btn text-white py-2 rounded text-sm">Kaydet</button></div></form></div></div>';
+}
+
+function layout(c){
+var menu='<button onclick="nav(\'dash\')" class="block w-full text-left px-3 py-2 rounded '+(page==='dash'?'bg-teal-600/30 text-teal-400':'text-slate-400 hover:bg-slate-800')+'">Dashboard</button><button onclick="nav(\'send\')" class="block w-full text-left px-3 py-2 rounded '+(page==='send'?'bg-teal-600/30 text-teal-400':'text-slate-400 hover:bg-slate-800')+'">Mail Gonder</button><button onclick="nav(\'emails\')" class="block w-full text-left px-3 py-2 rounded '+(page==='emails'?'bg-teal-600/30 text-teal-400':'text-slate-400 hover:bg-slate-800')+'">Mailler</button><button onclick="nav(\'settings\')" class="block w-full text-left px-3 py-2 rounded '+(page==='settings'?'bg-teal-600/30 text-teal-400':'text-slate-400 hover:bg-slate-800')+'">Ayarlar</button>';
+var admin=user&&user.role==='admin'?'<div class="mt-4 pt-4 border-t border-slate-700"><p class="text-xs text-slate-500 mb-2">YONETIM</p><button onclick="nav(\'tpls\')" class="block w-full text-left px-3 py-2 rounded '+(page==='tpls'?'bg-teal-600/30 text-teal-400':'text-slate-400 hover:bg-slate-800')+'">Taslaklar</button><button onclick="nav(\'users\')" class="block w-full text-left px-3 py-2 rounded '+(page==='users'?'bg-teal-600/30 text-teal-400':'text-slate-400 hover:bg-slate-800')+'">Kullanicilar</button></div>':'';
+return '<div class="flex min-h-screen"><aside class="w-56 bg-slate-900 border-r border-slate-800 p-4 hidden md:block"><h1 class="text-xl font-bold text-teal-400 mb-6">G360 Mail</h1><nav class="space-y-1">'+menu+admin+'</nav><div class="mt-auto pt-4 border-t border-slate-800 mt-6"><div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full bg-teal-500 flex items-center justify-center text-white font-bold">'+(user?user.full_name[0]:'?')+'</div><span class="text-white text-sm">'+(user?user.full_name:'')+'</span><button onclick="logout()" class="ml-auto text-slate-400 hover:text-red-400">X</button></div></div></aside><main class="flex-1 overflow-auto">'+c+'</main></div>';
+}
+
+function render(){
+var app=document.getElementById('app');
+if(page==='login'){app.innerHTML=loginHTML();document.getElementById('loginForm').onsubmit=login}
+else{
+var c='';
+if(page==='dash')c=dashHTML();
+else if(page==='send')c=sendHTML();
+else if(page==='emails')c=emailsHTML();
+else if(page==='settings')c=settingsHTML();
+else if(page==='users')c=usersHTML();
+else if(page==='tpls')c=tplsHTML();
+else c=dashHTML();
+app.innerHTML=layout(c);
+loadData();
+}
+}
+
+function loadData(){
+if(page==='dash'){
+Promise.all([user.role==='admin'?api('/api/stats'):Promise.resolve(null),api('/api/emails')]).then(function(r){
+var s=r[0]||{totalEmails:r[1].length,sentEmails:r[1].filter(function(e){return e.status==='sent'}).length,failedEmails:r[1].filter(function(e){return e.status==='failed'}).length};
+document.getElementById('stats').innerHTML='<div class="glass rounded-xl p-4"><p class="text-slate-400 text-sm">Toplam</p><p class="text-2xl font-bold text-white">'+s.totalEmails+'</p></div><div class="glass rounded-xl p-4"><p class="text-slate-400 text-sm">Basarili</p><p class="text-2xl font-bold text-green-400">'+s.sentEmails+'</p></div><div class="glass rounded-xl p-4"><p class="text-slate-400 text-sm">Basarisiz</p><p class="text-2xl font-bold text-red-400">'+s.failedEmails+'</p></div>'+(user.role==='admin'&&s.totalUsers!==undefined?'<div class="glass rounded-xl p-4"><p class="text-slate-400 text-sm">Kullanici</p><p class="text-2xl font-bold text-purple-400">'+s.totalUsers+'</p></div>':'');
+var h='';r[1].slice(0,5).forEach(function(e){var st=e.status==='sent'?'bg-green-500/20 text-green-400':'bg-red-500/20 text-red-400';h+='<div class="flex justify-between items-center py-2 border-b border-slate-700"><div><p class="text-white">'+(e.recipient_name||e.recipient_email)+'</p><p class="text-xs text-slate-500">'+e.subject+'</p></div><span class="px-2 py-1 rounded text-xs '+st+'">'+(e.status==='sent'?'OK':'Hata')+'</span></div>'});
+document.getElementById('recent').innerHTML=h||'<p class="text-slate-500">Henuz mail yok</p>';
+})}
+if(page==='send'){
+api('/api/templates').then(function(ts){
+templates=ts;var sel=document.getElementById('tplSelect');sel.innerHTML=ts.map(function(t){return'<option value="'+t.id+'">'+t.name+'</option>'}).join('');
+sel.onchange=updateForm;document.getElementById('sendForm').onsubmit=sendEmail;if(ts.length)updateForm();
+})}
+if(page==='emails'){
+api('/api/emails').then(function(es){
+var h='';es.forEach(function(e){var st=e.status==='sent'?'bg-green-500/20 text-green-400':'bg-red-500/20 text-red-400';
+h+='<tr class="border-b border-slate-800"><td class="p-3"><p class="text-white">'+(e.recipient_name||'-')+'</p><p class="text-xs text-slate-500">'+e.recipient_email+'</p></td>'+(user.role==='admin'?'<td class="p-3 text-slate-300">'+(e.sender_name||'-')+'</td>':'')+'<td class="p-3 text-slate-300">'+e.subject+'</td><td class="p-3"><span class="px-2 py-1 rounded text-xs '+st+'">'+(e.status==='sent'?'Gonderildi':'Basarisiz')+'</span></td><td class="p-3 text-slate-400 text-sm">'+new Date(e.sent_at).toLocaleString('tr')+'</td></tr>'});
+document.getElementById('emailList').innerHTML=h||'<tr><td colspan="5" class="p-4 text-center text-slate-500">Mail yok</td></tr>';
+})}
+if(page==='settings'){document.getElementById('passForm').onsubmit=changePass}
+if(page==='users'){
+api('/api/users').then(function(us){
+var h='';us.forEach(function(u){h+='<tr class="border-b border-slate-800"><td class="p-3 text-white">'+u.full_name+'</td><td class="p-3 text-slate-400">'+u.username+'</td><td class="p-3"><span class="px-2 py-1 rounded text-xs '+(u.role==='admin'?'bg-amber-500/20 text-amber-400':'bg-slate-700 text-slate-300')+'">'+(u.role==='admin'?'Admin':'User')+'</span></td><td class="p-3 text-right">'+(u.role!=='admin'?'<button onclick="delUser(\''+u.id+'\')" class="text-red-400 text-sm">Sil</button>':'')+'</td></tr>'});
+document.getElementById('userList').innerHTML=h;document.getElementById('userForm').onsubmit=addUser;
+})}
+if(page==='tpls'){
+api('/api/templates').then(function(ts){
+var h='';ts.forEach(function(t){var vs='';(t.variables||[]).slice(0,3).forEach(function(v){vs+='<span class="px-2 py-1 bg-slate-700 rounded text-xs text-slate-400 mr-1">'+v+'</span>'});
+h+='<div class="glass rounded-xl p-4"><div class="flex justify-between mb-2"><span class="text-white font-medium">'+t.name+'</span><button onclick="delTpl(\''+t.id+'\')" class="text-red-400 text-sm">Sil</button></div><p class="text-sm text-slate-400 mb-2">'+t.subject+'</p><div>'+vs+'</div></div>'});
+document.getElementById('tplGrid').innerHTML=h||'<p class="text-slate-500">Taslak yok</p>';document.getElementById('tplForm').onsubmit=addTpl;
+})}
+}
+
+function updateForm(){
+var tid=document.getElementById('tplSelect').value;
+var t=templates.find(function(x){return x.id===tid});if(!t)return;
+var h='';(t.variables||[]).forEach(function(v){h+='<div><label class="block text-xs text-slate-400 mb-1">'+v+'</label><input type="text" data-var="'+v+'" class="var-input w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white text-sm"></div>'});
+document.getElementById('vars').innerHTML=h?'<div class="grid grid-cols-2 gap-3">'+h+'</div>':'';
+document.querySelectorAll('.var-input').forEach(function(i){i.oninput=updatePreview});
+updatePreview();
+}
+
+function updatePreview(){
+var tid=document.getElementById('tplSelect').value;
+var t=templates.find(function(x){return x.id===tid});if(!t)return;
+var b=t.body;document.querySelectorAll('.var-input').forEach(function(i){var v=i.dataset.var;b=b.split('{'+v+'}').join(i.value||'['+v+']')});
+document.getElementById('preview').innerHTML=b;
+}
+
+function login(e){
+e.preventDefault();
+api('/api/auth/login',{method:'POST',body:JSON.stringify({username:document.getElementById('username').value,password:document.getElementById('password').value})}).then(function(r){
+localStorage.setItem('token',r.token);localStorage.setItem('user',JSON.stringify(r.user));user=r.user;toast('Giris basarili');nav('dash');
+}).catch(function(e){toast(e.message,true)});
+}
+
+function sendEmail(e){
+e.preventDefault();var btn=e.target.querySelector('button[type=submit]');btn.disabled=true;btn.textContent='Gonderiliyor...';
+var vars={};document.querySelectorAll('.var-input').forEach(function(i){vars[i.dataset.var]=i.value});
+api('/api/emails/send',{method:'POST',body:JSON.stringify({template_id:document.getElementById('tplSelect').value,recipient_email:document.getElementById('toEmail').value,recipient_name:document.getElementById('toName').value,variables:vars})}).then(function(){toast('Mail gonderildi!');nav('emails')}).catch(function(e){toast(e.message,true);btn.disabled=false;btn.textContent='Gonder'});
+}
+
+function changePass(e){
+e.preventDefault();
+api('/api/auth/change-password',{method:'POST',body:JSON.stringify({currentPassword:document.getElementById('curPass').value,newPassword:document.getElementById('newPass').value})}).then(function(){toast('Sifre degistirildi');e.target.reset()}).catch(function(e){toast(e.message,true)});
+}
+
+function showUserModal(){document.getElementById('userModal').classList.remove('hidden')}
+function hideUserModal(){document.getElementById('userModal').classList.add('hidden')}
+function showTplModal(){document.getElementById('tplModal').classList.remove('hidden')}
+function hideTplModal(){document.getElementById('tplModal').classList.add('hidden')}
+
+function addUser(e){
+e.preventDefault();
+api('/api/users',{method:'POST',body:JSON.stringify({username:document.getElementById('nuName').value,full_name:document.getElementById('nuFull').value,password:document.getElementById('nuPass').value})}).then(function(){toast('Kullanici eklendi');hideUserModal();loadData()}).catch(function(e){toast(e.message,true)});
+}
+
+function delUser(id){if(confirm('Silmek istediginize emin misiniz?'))api('/api/users/'+id,{method:'DELETE'}).then(function(){toast('Silindi');loadData()})}
+
+function addTpl(e){
+e.preventDefault();
+var vars=document.getElementById('tVars').value.split(',').map(function(v){return v.trim()}).filter(function(v){return v});
+api('/api/templates',{method:'POST',body:JSON.stringify({name:document.getElementById('tName').value,subject:document.getElementById('tSubj').value,body:document.getElementById('tBody').value,variables:vars})}).then(function(){toast('Taslak eklendi');hideTplModal();loadData()}).catch(function(e){toast(e.message,true)});
+}
+
+function delTpl(id){if(confirm('Silmek istediginize emin misiniz?'))api('/api/templates/'+id,{method:'DELETE'}).then(function(){toast('Silindi');loadData()})}
+
+function logout(){localStorage.clear();user=null;nav('login')}
+
+(function(){
+var t=localStorage.getItem('token'),u=localStorage.getItem('user');
+if(t&&u){user=JSON.parse(u);nav('dash')}else nav('login');
+})();
+</script>
+</body>
+</html>
